@@ -1,8 +1,9 @@
-#core/case_resolution/flow.py
+# core/flows/case_resolution/flow.py
 import logging
 from typing import Optional
-from django.utils import timezone
+
 from django.conf import settings
+from django.utils import timezone
 
 from core.models import Case, CaseMessage, AgentRun, AgentAction, CaseEvent
 from core.tools import case_tools
@@ -10,19 +11,27 @@ from .schema import CaseResolutionState
 
 logger = logging.getLogger(__name__)
 
+
 def _is_arabic(text: str) -> bool:
     return any("\u0600" <= ch <= "\u06FF" for ch in (text or ""))
+
 
 class CaseResolutionFlow:
     def __init__(self):
         self.state = CaseResolutionState()
 
-    def kickoff(self, incoming_text: str, phone: Optional[str] = None, account_id: Optional[str] = None, channel: str = "WHATSAPP"):
+    # ✅ NEW: create a brand-new case (used by WhatsApp inbound)
+    def kickoff_new_case(
+        self,
+        incoming_text: str,
+        phone: Optional[str] = None,
+        account_id: Optional[str] = None,
+        channel: str = "WHATSAPP",
+    ):
         self.state.incoming_text = incoming_text
         self.state.phone = phone
         self.state.account_id = account_id
 
-        # 1) Create a case
         subject = (incoming_text or "")[:200]
         case = Case.objects.create(
             account_id=account_id or None,
@@ -31,24 +40,84 @@ class CaseResolutionFlow:
             channel=channel,
             subject=subject,
         )
-        self.state.case_id = str(case.case_id)
 
-        # 2) Save customer message + event
+        # persist the incoming customer message + case created event
         CaseMessage.objects.create(
             case=case,
             sender_type="CUSTOMER",
             message_text=incoming_text,
             message_lang="AR" if _is_arabic(incoming_text) else "EN",
         )
-        CaseEvent.objects.create(case=case, event_type="CASE_CREATED", event_data={"phone": phone, "text": incoming_text})
+        CaseEvent.objects.create(
+            case=case,
+            event_type="CASE_CREATED",
+            event_data={"phone": phone, "text": incoming_text},
+        )
 
-        # 3) Attempt lookup by phone if account missing
-        if not account_id and phone:
+        return self._process_case(
+            case=case,
+            incoming_text=incoming_text,
+            phone=phone,
+            account_id=account_id,
+            channel=channel,
+            is_new_case=True,
+            persist_customer_message=False,  # already persisted above
+        )
+
+    # ✅ NEW: run agent for an EXISTING case (used by run_case_agent endpoint)
+    def kickoff_existing_case(
+        self,
+        case: Case,
+        incoming_text: str,
+        phone: Optional[str] = None,
+    ):
+        self.state.incoming_text = incoming_text
+        self.state.phone = phone
+        self.state.account_id = case.account_id
+
+        # We assume the latest customer message is already saved in DB (by add_message/create_case)
+        return self._process_case(
+            case=case,
+            incoming_text=incoming_text,
+            phone=phone,
+            account_id=case.account_id,
+            channel=case.channel,
+            is_new_case=False,
+            persist_customer_message=False,
+        )
+
+    # (Optional) Keep old name for compatibility if you still call kickoff() anywhere:
+    # def kickoff(self, incoming_text: str, phone: Optional[str] = None, account_id: Optional[str] = None, channel: str = "WHATSAPP"):
+    #     return self.kickoff_new_case(incoming_text=incoming_text, phone=phone, account_id=account_id, channel=channel)
+
+    def _process_case(
+        self,
+        case: Case,
+        incoming_text: str,
+        phone: Optional[str],
+        account_id: Optional[str],
+        channel: str,
+        is_new_case: bool,
+        persist_customer_message: bool,
+    ):
+        self.state.case_id = str(case.case_id)
+
+        # (Optional) if you ever want to persist the customer message here
+        if persist_customer_message:
+            CaseMessage.objects.create(
+                case=case,
+                sender_type="CUSTOMER",
+                message_text=incoming_text,
+                message_lang="AR" if _is_arabic(incoming_text) else "EN",
+            )
+
+        # 3) Attempt lookup by phone if account missing (only if we can improve case data)
+        if not case.account_id and phone:
             c = case_tools.find_customer_by_phone(phone)
             if c.get("customer"):
                 case.customer_id = str(c["customer"].get("customer_id") or c["customer"].get("id"))
                 case.account_id = c["customer"].get("account_id") or None
-                case.save()
+                case.save(update_fields=["customer_id", "account_id", "updated_at"])
 
         # 4) Gather evidence safely (won't crash if bills table missing)
         evidence = {}
@@ -124,8 +193,11 @@ class CaseResolutionFlow:
 
         self.state.decision = decision
 
-        # 6) Agent run record
-        run = AgentRun.objects.create(case=case, model_name=getattr(settings, "AGENT_MODEL", "case-resolution-v1"))
+        # 6) Agent run record (linked to the SAME case)
+        run = AgentRun.objects.create(
+            case=case,
+            model_name=getattr(settings, "AGENT_MODEL", "case-resolution-v1"),
+        )
 
         actions = []
         reply = None
@@ -143,7 +215,7 @@ class CaseResolutionFlow:
             CaseEvent.objects.create(case=case, event_type="TICKET_CREATED", event_data=ticket)
             case.status = "IN_REVIEW"
             case.resolution_summary = "Inspection ticket created"
-            case.save()
+            case.save(update_fields=["status", "resolution_summary", "updated_at"])
             actions.append({"type": "CREATE_TICKET", "ticket": ticket})
             reply = "We created an inspection ticket and our team will follow up shortly."
 
@@ -151,30 +223,51 @@ class CaseResolutionFlow:
             try:
                 recent_kwh = billing_rows[0].get("kwh")
                 prev_kwh = billing_rows[1].get("kwh") if len(billing_rows) > 1 else None
-                reply = f"We reviewed your bill. Your consumption changed from {prev_kwh} kWh to {recent_kwh} kWh. This explains the amount change."
+                reply = (
+                    f"We reviewed your bill. Your consumption changed from {prev_kwh} kWh to {recent_kwh} kWh. "
+                    f"This explains the amount change."
+                )
             except Exception:
                 reply = "We reviewed your account and found increased consumption compared to previous periods."
 
-            AgentAction.objects.create(run=run, action_type="API_CALL", action_target="explain", response_payload={"reply": reply}, success=True)
+            AgentAction.objects.create(
+                run=run,
+                action_type="API_CALL",
+                action_target="explain",
+                response_payload={"reply": reply},
+                success=True,
+            )
             case.status = "RESOLVED"
             case.resolution_summary = reply
-            case.save()
+            case.save(update_fields=["status", "resolution_summary", "updated_at"])
             actions.append({"type": "EXPLAIN"})
 
         elif decision == "REQUEST_MORE_INFO":
             reply = "Please provide your account number and a photo of the meter reading so we can investigate further."
-            AgentAction.objects.create(run=run, action_type="API_CALL", action_target="request_info", response_payload={"reply": reply}, success=True)
+            AgentAction.objects.create(
+                run=run,
+                action_type="API_CALL",
+                action_target="request_info",
+                response_payload={"reply": reply},
+                success=True,
+            )
             case.status = "WAITING_CUSTOMER"
             case.resolution_summary = "Requested more info from customer"
-            case.save()
+            case.save(update_fields=["status", "resolution_summary", "updated_at"])
             actions.append({"type": "REQUEST_MORE_INFO"})
 
         elif decision == "ESCALATE":
             reply = "Your case has been escalated to the specialist team. A human will contact you shortly."
-            AgentAction.objects.create(run=run, action_type="API_CALL", action_target="escalate", response_payload={"reply": reply}, success=True)
+            AgentAction.objects.create(
+                run=run,
+                action_type="API_CALL",
+                action_target="escalate",
+                response_payload={"reply": reply},
+                success=True,
+            )
             case.status = "ESCALATED"
             case.resolution_summary = "Escalated to specialist"
-            case.save()
+            case.save(update_fields=["status", "resolution_summary", "updated_at"])
             actions.append({"type": "ESCALATE"})
 
         if not reply:
@@ -185,7 +278,7 @@ class CaseResolutionFlow:
 
         self.state.reply_text = reply
 
-        # persist agent reply
+        # persist agent reply on the SAME case
         CaseMessage.objects.create(
             case=case,
             sender_type="AGENT",
@@ -199,9 +292,13 @@ class CaseResolutionFlow:
         run.finished_at = timezone.now()
         run.agent_summary = f"Decision: {decision}"
         run.confidence = 0.8
-        run.save()
+        run.save(update_fields=["final_decision", "run_status", "finished_at", "agent_summary", "confidence"])
 
-        CaseEvent.objects.create(case=case, event_type="AGENT_RUN", event_data={"decision": decision, "evidence_keys": list(evidence.keys())})
+        CaseEvent.objects.create(
+            case=case,
+            event_type="AGENT_RUN",
+            event_data={"decision": decision, "evidence_keys": list(evidence.keys())},
+        )
 
         return {
             "decision": decision,

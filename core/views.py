@@ -1,4 +1,4 @@
-#core/views.py
+# core/views.py
 import json
 import logging
 from threading import Lock
@@ -44,13 +44,21 @@ def whatsapp_test(request):
     try:
         payload = json.loads(request.body.decode("utf-8"))
     except Exception:
-        return HttpResponse(json.dumps({"status": "error", "message": "invalid_json"}), content_type="application/json", status=400)
+        return HttpResponse(
+            json.dumps({"status": "error", "message": "invalid_json"}),
+            content_type="application/json",
+            status=400,
+        )
 
     from_wa = payload.get("phone", "")
     test_message = payload.get("message", "Test message from WhatsApp")
 
     if not from_wa:
-        return HttpResponse(json.dumps({"status": "error", "message": "phone required"}), content_type="application/json", status=400)
+        return HttpResponse(
+            json.dumps({"status": "error", "message": "phone required"}),
+            content_type="application/json",
+            status=400,
+        )
 
     try:
         send_whatsapp_messages(from_wa, [{"text": f"✅ Test Reply:\n\n{test_message}", "image": None}])
@@ -86,13 +94,22 @@ def whatsapp_inbound(request):
     try:
         with processing_lock:
             if from_wa in processing_phones:
-                # avoid spamming; just acknowledge
-                return HttpResponse(json.dumps({"status": "ok", "message": "already_processing"}), content_type="application/json")
+                return HttpResponse(
+                    json.dumps({"status": "ok", "message": "already_processing"}),
+                    content_type="application/json",
+                )
             processing_phones.add(from_wa)
 
         try:
             flow = CaseResolutionFlow()
-            results = flow.kickoff(incoming_text=body, phone=from_wa, account_id=None, channel="WHATSAPP")
+
+            # ✅ FIX: WhatsApp inbound creates a NEW case via kickoff_new_case()
+            results = flow.kickoff_new_case(
+                incoming_text=body,
+                phone=from_wa,
+                account_id=None,
+                channel="WHATSAPP",
+            )
         finally:
             with processing_lock:
                 processing_phones.discard(from_wa)
@@ -148,9 +165,7 @@ def create_case(request):
     tags=["Cases"],
     summary="Add a message to a case",
     request=AddMessageRequestSerializer,
-    parameters=[
-        OpenApiParameter(name="case_id", location=OpenApiParameter.PATH, required=True, type=OpenApiTypes.UUID)
-    ],
+    parameters=[OpenApiParameter(name="case_id", location=OpenApiParameter.PATH, required=True, type=OpenApiTypes.UUID)],
     responses={201: AddMessageResponseSerializer},
 )
 @api_view(["POST"])
@@ -174,7 +189,6 @@ def add_message(request, case_id):
     return Response({"success": True, "message_id": msg.message_id}, status=status.HTTP_201_CREATED)
 
 
-
 @extend_schema(
     operation_id="run_case_agent",
     tags=["Cases"],
@@ -190,8 +204,12 @@ def run_case_agent(request, case_id):
         return Response({"success": False, "error": "no customer messages"}, status=status.HTTP_400_BAD_REQUEST)
 
     flow = CaseResolutionFlow()
-    res = flow.kickoff(incoming_text=latest.message_text, phone=None, account_id=case.account_id, channel=case.channel)
+
+    # ✅ FIX: run agent on the EXISTING case (no new case created)
+    res = flow.kickoff_existing_case(case=case, incoming_text=latest.message_text, phone=None)
+
     return Response({"success": True, "result": res}, status=status.HTTP_200_OK)
+
 
 @extend_schema(
     operation_id="get_case",
