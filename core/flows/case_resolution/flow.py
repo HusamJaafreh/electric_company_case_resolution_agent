@@ -1,13 +1,14 @@
 # core/flows/case_resolution/flow.py
 import logging
+import re
 from typing import Optional
 
 from django.conf import settings
 from django.utils import timezone
 
 from core.models import Case, CaseMessage, AgentRun, AgentAction, CaseEvent
-from core.tools import case_tools
-from .schema import CaseResolutionState
+from core.flows.case_resolution.schema import CaseResolutionState
+from core.crews.case_resolution.crew import run_case_resolution_ai
 
 logger = logging.getLogger(__name__)
 
@@ -16,11 +17,26 @@ def _is_arabic(text: str) -> bool:
     return any("\u0600" <= ch <= "\u06FF" for ch in (text or ""))
 
 
+def _extract_account_id(text: str) -> Optional[str]:
+    if not text:
+        return None
+    t = text.strip()
+
+    m = re.search(r"\bACC[\-_]?\s*([A-Z0-9]{3,})\b", t, flags=re.IGNORECASE)
+    if m:
+        return f"ACC_{m.group(1).upper()}"
+
+    m = re.search(r"\b\d{6,}\b", t)
+    if m:
+        return m.group(0)
+
+    return None
+
+
 class CaseResolutionFlow:
     def __init__(self):
         self.state = CaseResolutionState()
 
-    # ✅ NEW: create a brand-new case (used by WhatsApp inbound)
     def kickoff_new_case(
         self,
         incoming_text: str,
@@ -34,14 +50,15 @@ class CaseResolutionFlow:
 
         subject = (incoming_text or "")[:200]
         case = Case.objects.create(
+            phone=phone or None,
             account_id=account_id or None,
             customer_id=None,
             case_type="OTHER",
             channel=channel,
             subject=subject,
+            last_customer_message_at=timezone.now(),
         )
 
-        # persist the incoming customer message + case created event
         CaseMessage.objects.create(
             case=case,
             sender_type="CUSTOMER",
@@ -54,258 +71,185 @@ class CaseResolutionFlow:
             event_data={"phone": phone, "text": incoming_text},
         )
 
-        return self._process_case(
-            case=case,
-            incoming_text=incoming_text,
-            phone=phone,
-            account_id=account_id,
-            channel=channel,
-            is_new_case=True,
-            persist_customer_message=False,  # already persisted above
-        )
+        return self._process_case(case=case, incoming_text=incoming_text, phone=phone)
 
-    # ✅ NEW: run agent for an EXISTING case (used by run_case_agent endpoint)
-    def kickoff_existing_case(
-        self,
-        case: Case,
-        incoming_text: str,
-        phone: Optional[str] = None,
-    ):
+    def kickoff_existing_case(self, case: Case, incoming_text: str, phone: Optional[str] = None):
         self.state.incoming_text = incoming_text
         self.state.phone = phone
         self.state.account_id = case.account_id
 
-        # We assume the latest customer message is already saved in DB (by add_message/create_case)
-        return self._process_case(
-            case=case,
-            incoming_text=incoming_text,
-            phone=phone,
-            account_id=case.account_id,
-            channel=case.channel,
-            is_new_case=False,
-            persist_customer_message=False,
-        )
+        # If user sent account_id in the message, store it (important for seamless demo)
+        extracted = _extract_account_id(incoming_text)
+        if extracted and not case.account_id:
+            case.account_id = extracted
 
-    # (Optional) Keep old name for compatibility if you still call kickoff() anywhere:
-    # def kickoff(self, incoming_text: str, phone: Optional[str] = None, account_id: Optional[str] = None, channel: str = "WHATSAPP"):
-    #     return self.kickoff_new_case(incoming_text=incoming_text, phone=phone, account_id=account_id, channel=channel)
+        if phone and not case.phone:
+            case.phone = phone
 
-    def _process_case(
-        self,
-        case: Case,
-        incoming_text: str,
-        phone: Optional[str],
-        account_id: Optional[str],
-        channel: str,
-        is_new_case: bool,
-        persist_customer_message: bool,
-    ):
+        case.last_customer_message_at = timezone.now()
+        case.save(update_fields=["account_id", "phone", "last_customer_message_at", "updated_at"])
+
+        return self._process_case(case=case, incoming_text=incoming_text, phone=phone)
+
+    def _process_case(self, case: Case, incoming_text: str, phone: Optional[str]):
         self.state.case_id = str(case.case_id)
 
-        # (Optional) if you ever want to persist the customer message here
-        if persist_customer_message:
-            CaseMessage.objects.create(
-                case=case,
-                sender_type="CUSTOMER",
-                message_text=incoming_text,
-                message_lang="AR" if _is_arabic(incoming_text) else "EN",
-            )
+        # ---- Build CrewAI input ----
+        recent_messages = list(
+            case.messages.order_by("-created_at")
+            .values("sender_type", "message_text", "created_at")[:10]
+        )
+        recent_messages.reverse()
+        for m in recent_messages:
+            if m.get("created_at"):
+                m["created_at"] = m["created_at"].isoformat()
+        payload = {
+            "incoming_text": incoming_text,
+            "phone": phone,
+            "case": {
+                "case_id": str(case.case_id),
+                "status": case.status,
+                "account_id": case.account_id,
+                "customer_id": case.customer_id,
+                "channel": case.channel,
+                "case_type": case.case_type,
+                "subject": case.subject,
+            },
+            "recent_messages": recent_messages,
+            # Let CrewAI use tools; no rule-based evidence gathering here.
+            "evidence": {},
+        }
 
-        # 3) Attempt lookup by phone if account missing (only if we can improve case data)
-        if not case.account_id and phone:
-            c = case_tools.find_customer_by_phone(phone)
-            if c.get("customer"):
-                case.customer_id = str(c["customer"].get("customer_id") or c["customer"].get("id"))
-                case.account_id = c["customer"].get("account_id") or None
-                case.save(update_fields=["customer_id", "account_id", "updated_at"])
-
-        # 4) Gather evidence safely (won't crash if bills table missing)
-        evidence = {}
-        acct = case.account_id or account_id
-
-        if acct:
-            evidence["billing"] = case_tools.get_billing_history(acct, months=6)
-            evidence["payments"] = case_tools.get_payment_history(acct, months=6)
-
-            # best-effort account row
-            try:
-                acc_row = case_tools._fetchone(
-                    f"SELECT meter_id, address, tariff_id FROM {case_tools._table('accounts')} WHERE account_id = %s LIMIT 1",
-                    [acct],
-                )
-            except Exception as e:
-                logger.warning("accounts lookup unavailable: %s", e)
-                acc_row = None
-
-            if acc_row:
-                evidence["account"] = acc_row
-                meter_id = acc_row.get("meter_id")
-                if meter_id:
-                    evidence["meter"] = case_tools.get_meter_readings(meter_id, n=5)
-                tariff_id = acc_row.get("tariff_id")
-                if tariff_id:
-                    evidence["tariff"] = case_tools.get_tariff(tariff_id)
-                address = acc_row.get("address")
-                if address:
-                    evidence["outages"] = case_tools.get_recent_outages(address, days=30)
-        else:
-            evidence["note"] = "No account_id available; attempted phone lookup"
-
-        self.state.evidence = evidence
-
-        # 5) Decision rules
-        decision = "REQUEST_MORE_INFO"
-        billing_rows = (evidence.get("billing") or {}).get("billing", [])
-
-        # Estimated bill => ask for info
-        if any(b.get("is_estimated") for b in billing_rows):
-            decision = "REQUEST_MORE_INFO"
-
-        # Consumption spike => explain
-        if len(billing_rows) >= 2:
-            try:
-                recent = float(billing_rows[0].get("kwh") or 0)
-                prevs = [float(b.get("kwh") or 0) for b in billing_rows[1:4]]
-                avg_prev = sum(prevs) / (len(prevs) or 1)
-                if recent > avg_prev * 2.0 and recent > 50:
-                    decision = "EXPLAIN"
-            except Exception:
-                pass
-
-        # Meter rollback => ticket
-        meter_rows = (evidence.get("meter") or {}).get("readings", [])
-        if len(meter_rows) >= 2:
-            try:
-                latest = float(meter_rows[0].get("value") or 0)
-                prev = float(meter_rows[1].get("value") or 0)
-                if latest < prev:
-                    decision = "CREATE_TICKET"
-            except Exception:
-                pass
-
-        # Very high bill => escalate
-        if billing_rows:
-            try:
-                if float(billing_rows[0].get("amount") or 0) > 2000:
-                    decision = "ESCALATE"
-            except Exception:
-                pass
-
-        self.state.decision = decision
-
-        # 6) Agent run record (linked to the SAME case)
+        # ---- Create AgentRun record BEFORE call (demo transparency) ----
         run = AgentRun.objects.create(
             case=case,
-            model_name=getattr(settings, "AGENT_MODEL", "case-resolution-v1"),
+            model_name=getattr(settings, "AGENT_MODEL", "crewai-case-resolution"),
+            run_status="STARTED",
         )
 
-        actions = []
-        reply = None
+        try:
+            result = run_case_resolution_ai(payload)
 
-        if decision == "CREATE_TICKET":
-            ticket = case_tools.create_service_ticket(acct or "unknown", "inspection", incoming_text, priority="HIGH")
+            decision = result.get("decision")
+            reply = result.get("reply_text") or ""
+            actions = result.get("actions") or []
+            confidence = float(result.get("confidence") or 0.7)
+            summary = result.get("summary_for_human") or f"Decision: {decision}"
+
+            # Save raw agent output as an action for debugging
             AgentAction.objects.create(
                 run=run,
-                action_type="CREATE_TICKET",
-                action_target=str(acct),
-                request_payload={"reason": incoming_text},
-                response_payload=ticket,
-                success=bool(ticket.get("success", False)),
+                action_type="API_CALL",
+                action_target="CREWAI_OUTPUT",
+                request_payload={"input_payload": payload},
+                response_payload=result,
+                success=True,
             )
-            CaseEvent.objects.create(case=case, event_type="TICKET_CREATED", event_data=ticket)
-            case.status = "IN_REVIEW"
-            case.resolution_summary = "Inspection ticket created"
-            case.save(update_fields=["status", "resolution_summary", "updated_at"])
-            actions.append({"type": "CREATE_TICKET", "ticket": ticket})
-            reply = "We created an inspection ticket and our team will follow up shortly."
 
-        elif decision == "EXPLAIN":
-            try:
-                recent_kwh = billing_rows[0].get("kwh")
-                prev_kwh = billing_rows[1].get("kwh") if len(billing_rows) > 1 else None
-                reply = (
-                    f"We reviewed your bill. Your consumption changed from {prev_kwh} kWh to {recent_kwh} kWh. "
-                    f"This explains the amount change."
+            # Save any declared actions (even if tools already executed them)
+            for a in actions:
+                AgentAction.objects.create(
+                    run=run,
+                    action_type=str(a.get("type") or "ACTION"),
+                    action_target=str(a.get("target") or ""),
+                    request_payload=a.get("request_payload") or {},
+                    response_payload={},
+                    success=True,
                 )
-            except Exception:
-                reply = "We reviewed your account and found increased consumption compared to previous periods."
+
+            # Update case status based on decision
+            if decision == "EXPLAIN":
+                case.status = "RESOLVED"
+                case.resolution_summary = reply
+                case.resolved_at = timezone.now()
+            elif decision == "REQUEST_MORE_INFO":
+                case.status = "WAITING_CUSTOMER"
+                case.resolution_summary = "Requested more info"
+            elif decision == "CREATE_TICKET":
+                case.status = "IN_REVIEW"
+                case.resolution_summary = "Ticket created / inspection requested"
+            elif decision == "ESCALATE":
+                case.status = "ESCALATED"
+                case.resolution_summary = "Escalated to specialist team"
+
+            case.last_agent_message_at = timezone.now()
+            case.save(update_fields=["status", "resolution_summary", "resolved_at", "last_agent_message_at", "updated_at"])
+
+            # RTL wrap if Arabic
+            if _is_arabic(reply):
+                reply_to_send = f'<div dir="rtl" style="text-align:right; font-family: Arial, Tahoma;">{reply}</div>'
+            else:
+                reply_to_send = reply
+
+            # Persist agent reply message
+            CaseMessage.objects.create(
+                case=case,
+                sender_type="AGENT",
+                message_text=reply_to_send,
+                message_lang="AR" if _is_arabic(reply) else "EN",
+            )
+
+            # Finalize run
+            run.final_decision = decision
+            run.run_status = "SUCCESS"
+            run.finished_at = timezone.now()
+            run.agent_summary = summary
+            run.confidence = confidence
+            run.save(update_fields=["final_decision", "run_status", "finished_at", "agent_summary", "confidence"])
+
+            # Event
+            CaseEvent.objects.create(
+                case=case,
+                event_type="AGENT_RUN",
+                event_data={"decision": decision, "confidence": confidence},
+            )
+
+            return {
+                "decision": decision,
+                "reply_text": reply_to_send,
+                "actions": actions,
+                "evidence": {},  # CrewAI tools may have fetched info internally
+                "confidence": confidence,
+                "summary_for_human": summary,
+                "case_id": str(case.case_id),
+            }
+
+        except Exception as e:
+            logger.error("CrewAI run failed: %s", e, exc_info=True)
 
             AgentAction.objects.create(
                 run=run,
                 action_type="API_CALL",
-                action_target="explain",
-                response_payload={"reply": reply},
-                success=True,
+                action_target="CREWAI_ERROR",
+                request_payload={"input_payload": payload},
+                response_payload={"error": str(e)},
+                success=False,
+                error_message=str(e),
             )
-            case.status = "RESOLVED"
-            case.resolution_summary = reply
-            case.save(update_fields=["status", "resolution_summary", "updated_at"])
-            actions.append({"type": "EXPLAIN"})
 
-        elif decision == "REQUEST_MORE_INFO":
-            reply = "Please provide your account number and a photo of the meter reading so we can investigate further."
-            AgentAction.objects.create(
-                run=run,
-                action_type="API_CALL",
-                action_target="request_info",
-                response_payload={"reply": reply},
-                success=True,
+            run.run_status = "FAILED"
+            run.finished_at = timezone.now()
+            run.agent_summary = f"Failed: {e}"
+            run.confidence = 0.0
+            run.save(update_fields=["run_status", "finished_at", "agent_summary", "confidence"])
+
+            # Fail-safe reply for demo
+            fallback = "Sorry—there was a system issue while processing your request. Please share your account number and we’ll investigate."
+            CaseMessage.objects.create(
+                case=case,
+                sender_type="AGENT",
+                message_text=fallback,
+                message_lang="EN",
             )
-            case.status = "WAITING_CUSTOMER"
-            case.resolution_summary = "Requested more info from customer"
-            case.save(update_fields=["status", "resolution_summary", "updated_at"])
-            actions.append({"type": "REQUEST_MORE_INFO"})
+            case.last_agent_message_at = timezone.now()
+            case.save(update_fields=["last_agent_message_at", "updated_at"])
 
-        elif decision == "ESCALATE":
-            reply = "Your case has been escalated to the specialist team. A human will contact you shortly."
-            AgentAction.objects.create(
-                run=run,
-                action_type="API_CALL",
-                action_target="escalate",
-                response_payload={"reply": reply},
-                success=True,
-            )
-            case.status = "ESCALATED"
-            case.resolution_summary = "Escalated to specialist"
-            case.save(update_fields=["status", "resolution_summary", "updated_at"])
-            actions.append({"type": "ESCALATE"})
-
-        if not reply:
-            reply = "Thank you. We created a case and will follow up shortly."
-
-        if _is_arabic(reply):
-            reply = f'<div dir="rtl" style="text-align:right; font-family: Arial, Tahoma;">{reply}</div>'
-
-        self.state.reply_text = reply
-
-        # persist agent reply on the SAME case
-        CaseMessage.objects.create(
-            case=case,
-            sender_type="AGENT",
-            message_text=reply,
-            message_lang="AR" if _is_arabic(reply) else "EN",
-        )
-
-        # finalize run
-        run.final_decision = decision
-        run.run_status = "SUCCESS"
-        run.finished_at = timezone.now()
-        run.agent_summary = f"Decision: {decision}"
-        run.confidence = 0.8
-        run.save(update_fields=["final_decision", "run_status", "finished_at", "agent_summary", "confidence"])
-
-        CaseEvent.objects.create(
-            case=case,
-            event_type="AGENT_RUN",
-            event_data={"decision": decision, "evidence_keys": list(evidence.keys())},
-        )
-
-        return {
-            "decision": decision,
-            "reply_text": reply,
-            "actions": actions,
-            "evidence": evidence,
-            "confidence": run.confidence,
-            "summary_for_human": run.agent_summary,
-            "case_id": str(case.case_id),
-        }
+            return {
+                "decision": "REQUEST_MORE_INFO",
+                "reply_text": fallback,
+                "actions": [{"type": "ERROR"}],
+                "evidence": {},
+                "confidence": 0.0,
+                "summary_for_human": f"Error: {e}",
+                "case_id": str(case.case_id),
+            }

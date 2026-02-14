@@ -1,6 +1,7 @@
-#core/models/case_models.py
 import uuid
 from django.db import models
+from django.utils import timezone
+
 
 class Case(models.Model):
     CASE_TYPES = [
@@ -29,20 +30,38 @@ class Case(models.Model):
     ]
 
     case_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # demo-critical
+    phone = models.CharField(max_length=32, null=True, blank=True, db_index=True)
+
     customer_id = models.CharField(max_length=128, null=True, blank=True)
-    account_id = models.CharField(max_length=128, null=True, blank=True)
+    account_id = models.CharField(max_length=128, null=True, blank=True, db_index=True)
+
     case_type = models.CharField(max_length=32, choices=CASE_TYPES, default="OTHER")
     priority = models.CharField(max_length=16, choices=PRIORITY, default="MEDIUM")
     status = models.CharField(max_length=32, choices=STATUS, default="NEW")
     channel = models.CharField(max_length=32, default="WHATSAPP")
     subject = models.CharField(max_length=255, blank=True)
+
     resolution_code = models.CharField(max_length=64, null=True, blank=True)
     resolution_summary = models.TextField(null=True, blank=True)
+
     assigned_team = models.CharField(max_length=128, null=True, blank=True)
     assigned_user_id = models.CharField(max_length=128, null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+
+    last_customer_message_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    last_agent_message_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True, db_index=True)
     resolved_at = models.DateTimeField(null=True, blank=True)
+
+    def mark_resolved(self, summary: str = ""):
+        self.status = "RESOLVED"
+        if summary:
+            self.resolution_summary = summary
+        self.resolved_at = timezone.now()
+        self.save(update_fields=["status", "resolution_summary", "resolved_at", "updated_at"])
 
     def __str__(self):
         return f"Case {self.case_id} ({self.case_type})"
@@ -63,7 +82,7 @@ class CaseMessage(models.Model):
     sender_id = models.CharField(max_length=128, null=True, blank=True)
     message_text = models.TextField()
     message_lang = models.CharField(max_length=8, choices=LANG, default="EN")
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
 
 class AgentRun(models.Model):
@@ -82,7 +101,7 @@ class AgentRun(models.Model):
     final_decision = models.CharField(max_length=32, choices=DECISIONS, null=True, blank=True)
     confidence = models.FloatField(null=True, blank=True)
     agent_summary = models.TextField(null=True, blank=True)
-    started_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(auto_now_add=True, db_index=True)
     finished_at = models.DateTimeField(null=True, blank=True)
 
 
@@ -103,7 +122,7 @@ class AgentAction(models.Model):
     response_payload = models.JSONField(null=True, blank=True)
     success = models.BooleanField(default=True)
     error_message = models.TextField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
 
 class CaseEvent(models.Model):
@@ -119,4 +138,4 @@ class CaseEvent(models.Model):
     case = models.ForeignKey(Case, on_delete=models.CASCADE, related_name="events")
     event_type = models.CharField(max_length=64, choices=EVENT_TYPES)
     event_data = models.JSONField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)

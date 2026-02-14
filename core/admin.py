@@ -1,10 +1,19 @@
-#core/admin.py
+# core/admin.py
 from django.contrib import admin
 from django.utils.html import format_html
-from django.utils import timezone
 
-from core.models import Case, CaseMessage, AgentRun, AgentAction, CaseEvent, WhatsAppMessage
-
+#from core.models import Case, CaseMessage, AgentRun, AgentAction, CaseEvent, WhatsAppMessage
+from core.models.case_models import Case, CaseMessage, AgentRun, AgentAction, CaseEvent
+from core.models.whatsapp_message import WhatsAppMessage
+from core.models.utility_models import (
+    UtilityAccount,
+    UtilityBill,
+    UtilityPayment,
+    UtilityMeterReading,
+    UtilityTariff,
+    UtilityOutage,
+)
+from core.models.ticket_models import ServiceTicket
 
 # -----------------------
 # Inlines (shown inside Case)
@@ -48,6 +57,26 @@ class CaseEventInline(admin.TabularInline):
 
 
 # -----------------------
+# Utility Inlines (shown inside UtilityAccount)
+# -----------------------
+
+class UtilityBillInline(admin.TabularInline):
+    model = UtilityBill
+    extra = 0
+    fields = ("bill_date", "amount", "kwh", "is_estimated", "created_at")
+    readonly_fields = ("created_at",)
+    ordering = ("-bill_date",)
+
+
+class UtilityPaymentInline(admin.TabularInline):
+    model = UtilityPayment
+    extra = 0
+    fields = ("payment_date", "amount", "created_at")
+    readonly_fields = ("created_at",)
+    ordering = ("-payment_date",)
+
+
+# -----------------------
 # Case
 # -----------------------
 
@@ -82,11 +111,12 @@ class CaseAdmin(admin.ModelAdmin):
     date_hierarchy = "created_at"
     list_per_page = 50
 
-    readonly_fields = ("case_id", "created_at", "updated_at")
+    readonly_fields = ("case_id", "created_at", "updated_at", "utility_snapshot")
 
     fieldsets = (
         ("Case", {"fields": ("case_id", "case_type", "status", "priority", "channel", "subject")}),
         ("Customer", {"fields": ("customer_id", "account_id")}),
+        ("Utility Snapshot", {"fields": ("utility_snapshot",)}),
         ("Assignment", {"fields": ("assigned_team", "assigned_user_id")}),
         ("Resolution", {"fields": ("resolution_code", "resolution_summary", "resolved_at")}),
         ("Timestamps", {"fields": ("created_at", "updated_at")}),
@@ -98,6 +128,76 @@ class CaseAdmin(admin.ModelAdmin):
     def subject_short(self, obj):
         s = (obj.subject or "").strip()
         return (s[:60] + "…") if len(s) > 60 else (s or "-")
+
+    @admin.display(description="Utility data")
+    def utility_snapshot(self, obj: Case):
+        acct_id = (obj.account_id or "").strip()
+        if not acct_id:
+            return format_html("<i>No account_id on this case.</i>")
+
+        acc = UtilityAccount.objects.filter(account_id=acct_id).first()
+        if not acc:
+            return format_html("<b>Account:</b> {} <br><i>No UtilityAccount row found.</i>", acct_id)
+
+        bills = list(acc.bills.order_by("-bill_date")[:5])
+        pays = list(acc.payments.order_by("-payment_date")[:5])
+
+        readings = []
+        if acc.meter_id:
+            readings = list(
+                UtilityMeterReading.objects.filter(meter_id=acc.meter_id).order_by("-reading_date")[:5]
+            )
+
+        tariff = None
+        if acc.tariff_id:
+            tariff = UtilityTariff.objects.filter(tariff_id=acc.tariff_id).first()
+
+        outages = []
+        if acc.address:
+            outages = list(UtilityOutage.objects.filter(address=acc.address).order_by("-outage_date")[:5])
+
+        html = []
+        html.append(f"<b>Account:</b> {acc.account_id}")
+        html.append(f"<br><b>Customer:</b> {acc.customer_id or '-'}")
+        html.append(f"<br><b>Meter:</b> {acc.meter_id or '-'}")
+        html.append(f"<br><b>Tariff:</b> {acc.tariff_id or '-'}")
+        html.append(f"<br><b>Address:</b> {(acc.address or '-')}")
+        if tariff:
+            html.append(f"<br><b>Tariff Name:</b> {tariff.name} | <b>Rate:</b> {tariff.rate}")
+
+        # Bills
+        html.append("<hr><b>Recent Bills</b><br>")
+        if bills:
+            for b in bills:
+                html.append(f"{b.bill_date} | amount={b.amount} | kwh={b.kwh} | estimated={b.is_estimated}<br>")
+        else:
+            html.append("<i>None</i><br>")
+
+        # Payments
+        html.append("<hr><b>Recent Payments</b><br>")
+        if pays:
+            for p in pays:
+                html.append(f"{p.payment_date} | amount={p.amount}<br>")
+        else:
+            html.append("<i>None</i><br>")
+
+        # Meter readings
+        html.append("<hr><b>Recent Meter Readings</b><br>")
+        if readings:
+            for r in readings:
+                html.append(f"{r.reading_date} | value={r.value}<br>")
+        else:
+            html.append("<i>None</i><br>")
+
+        # Outages
+        html.append("<hr><b>Recent Outages</b><br>")
+        if outages:
+            for o in outages:
+                html.append(f"{o.outage_date} | status={o.status}<br>")
+        else:
+            html.append("<i>None</i><br>")
+
+        return format_html("".join(html))
 
 
 # -----------------------
@@ -247,3 +347,117 @@ class WhatsAppMessageAdmin(admin.ModelAdmin):
             return "-"
         s = str(obj.payload)
         return (s[:160] + "…") if len(s) > 160 else s
+
+
+# -----------------------
+# UtilityAccount
+# -----------------------
+
+@admin.register(UtilityAccount)
+class UtilityAccountAdmin(admin.ModelAdmin):
+    list_display = ("account_id", "customer_id", "meter_id", "tariff_id", "address_short", "created_at")
+    list_filter = ("created_at",)
+    search_fields = ("account_id", "customer_id", "meter_id", "tariff_id", "address")
+    ordering = ("-created_at",)
+    date_hierarchy = "created_at"
+    readonly_fields = ("created_at",)
+
+    fieldsets = (
+        ("Account", {"fields": ("account_id", "customer_id")}),
+        ("Utility Info", {"fields": ("meter_id", "tariff_id", "address")}),
+        ("Timestamps", {"fields": ("created_at",)}),
+    )
+
+    inlines = [UtilityBillInline, UtilityPaymentInline]
+
+    @admin.display(description="Address")
+    def address_short(self, obj):
+        s = (obj.address or "").strip()
+        return (s[:60] + "…") if len(s) > 60 else (s or "-")
+
+
+# -----------------------
+# UtilityBill
+# -----------------------
+
+@admin.register(UtilityBill)
+class UtilityBillAdmin(admin.ModelAdmin):
+    list_display = ("bill_id", "account", "bill_date", "amount", "kwh", "is_estimated", "created_at")
+    list_filter = ("is_estimated", "bill_date", "created_at")
+    search_fields = ("bill_id", "account__account_id")
+    ordering = ("-bill_date", "-created_at")
+    date_hierarchy = "bill_date"
+    autocomplete_fields = ("account",)
+    list_select_related = ("account",)
+    readonly_fields = ("bill_id", "created_at")
+
+
+# -----------------------
+# UtilityPayment
+# -----------------------
+
+@admin.register(UtilityPayment)
+class UtilityPaymentAdmin(admin.ModelAdmin):
+    list_display = ("payment_id", "account", "payment_date", "amount", "created_at")
+    list_filter = ("payment_date", "created_at")
+    search_fields = ("payment_id", "account__account_id")
+    ordering = ("-payment_date", "-created_at")
+    date_hierarchy = "payment_date"
+    autocomplete_fields = ("account",)
+    list_select_related = ("account",)
+    readonly_fields = ("payment_id", "created_at")
+
+
+# -----------------------
+# UtilityMeterReading
+# -----------------------
+
+@admin.register(UtilityMeterReading)
+class UtilityMeterReadingAdmin(admin.ModelAdmin):
+    list_display = ("reading_id", "meter_id", "reading_date", "value", "created_at")
+    list_filter = ("reading_date", "created_at")
+    search_fields = ("reading_id", "meter_id")
+    ordering = ("-reading_date", "-created_at")
+    date_hierarchy = "reading_date"
+    readonly_fields = ("reading_id", "created_at")
+
+
+# -----------------------
+# UtilityTariff
+# -----------------------
+
+@admin.register(UtilityTariff)
+class UtilityTariffAdmin(admin.ModelAdmin):
+    list_display = ("tariff_id", "name", "rate", "created_at")
+    list_filter = ("created_at",)
+    search_fields = ("tariff_id", "name")
+    ordering = ("name",)
+    readonly_fields = ("created_at",)
+
+
+# -----------------------
+# UtilityOutage
+# -----------------------
+
+@admin.register(UtilityOutage)
+class UtilityOutageAdmin(admin.ModelAdmin):
+    list_display = ("outage_id", "address_short", "outage_date", "status", "created_at")
+    list_filter = ("status", "outage_date", "created_at")
+    search_fields = ("outage_id", "address", "details")
+    ordering = ("-outage_date", "-created_at")
+    date_hierarchy = "outage_date"
+    readonly_fields = ("outage_id", "created_at")
+
+    @admin.display(description="Address")
+    def address_short(self, obj):
+        s = (obj.address or "").strip()
+        return (s[:60] + "…") if len(s) > 60 else (s or "-")
+
+@admin.register(ServiceTicket)
+class ServiceTicketAdmin(admin.ModelAdmin):
+    list_display = ("ticket_id", "status", "priority", "category", "account_id", "case", "created_at")
+    list_filter = ("status", "priority", "category", "created_at")
+    search_fields = ("ticket_id", "account_id", "description", "case__case_id")
+    ordering = ("-created_at",)
+    autocomplete_fields = ("case",)
+    readonly_fields = ("ticket_pk", "created_at")

@@ -7,6 +7,7 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
+from django.utils import timezone
 
 from rest_framework import status
 from rest_framework.decorators import api_view
@@ -18,7 +19,10 @@ from drf_spectacular.types import OpenApiTypes
 from core.tools.whatsapp_gupshup import send_whatsapp_messages
 from core.flows.case_resolution.flow import CaseResolutionFlow
 from core.flows.content_generation.flow import ContentGenerationFlow
-from core.models import Case, CaseMessage
+
+from core.models.case_models import Case, CaseMessage
+from core.models.whatsapp_message import WhatsAppMessage
+
 
 from core.serializers import (
     CreateCaseRequestSerializer,
@@ -31,6 +35,8 @@ from core.serializers import (
     GetCaseResponseSerializer,
     GetCaseMessagesResponseSerializer,
 )
+
+from datetime import timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +71,11 @@ def whatsapp_test(request):
         return HttpResponse(json.dumps({"status": "ok", "message": "Test sent"}), content_type="application/json")
     except Exception as e:
         logger.error("Test send failed: %s", e, exc_info=True)
-        return HttpResponse(json.dumps({"status": "error", "message": str(e)}), content_type="application/json", status=500)
+        return HttpResponse(
+            json.dumps({"status": "error", "message": str(e)}),
+            content_type="application/json",
+            status=500,
+        )
 
 
 @csrf_exempt
@@ -84,32 +94,82 @@ def whatsapp_inbound(request):
 
     message_payload = payload.get("payload", {})
     sender_info = message_payload.get("sender", {})
-    from_wa = sender_info.get("phone", "")
+    from_wa = (sender_info.get("phone") or "").strip()
 
     nested_payload = message_payload.get("payload", {})
     body = (nested_payload.get("text") or "").strip()
 
-    logger.warning("Inbound WhatsApp: from=%s body=%r", from_wa, body)
+    # ✅ Best-effort provider message id (for dedup)
+    provider_message_id = (
+        message_payload.get("id")
+        or nested_payload.get("id")
+        or payload.get("id")
+        or nested_payload.get("messageId")
+        or message_payload.get("messageId")
+    )
+    provider_message_id = str(provider_message_id).strip() if provider_message_id else None
+
+    logger.warning("Inbound WhatsApp: from=%s msg_id=%s body=%r", from_wa, provider_message_id, body)
+
+    if not from_wa or not body:
+        return HttpResponse(json.dumps({"status": "ok", "message": "ignored_empty"}), content_type="application/json")
+
+    # ✅ Dedup: if already stored, ignore
+    try:
+        if provider_message_id:
+            obj, created = WhatsAppMessage.objects.get_or_create(
+                provider_message_id=provider_message_id,
+                defaults={"from_phone": from_wa, "payload": payload},
+            )
+            if not created:
+                return HttpResponse(json.dumps({"status": "ok", "message": "duplicate_ignored"}), content_type="application/json")
+        else:
+            WhatsAppMessage.objects.create(from_phone=from_wa, payload=payload)
+    except Exception as e:
+        logger.warning("Failed to persist WhatsAppMessage: %s", e)
 
     try:
         with processing_lock:
             if from_wa in processing_phones:
-                return HttpResponse(
-                    json.dumps({"status": "ok", "message": "already_processing"}),
-                    content_type="application/json",
-                )
+                return HttpResponse(json.dumps({"status": "ok", "message": "already_processing"}), content_type="application/json")
             processing_phones.add(from_wa)
 
         try:
+            cutoff = timezone.now() - timedelta(hours=24)
+
+            # ✅ NEW: stable open case lookup using Case.phone + timestamps (fast, indexed)
+            open_case = (
+                Case.objects
+                .filter(channel="WHATSAPP")
+                .filter(phone=from_wa)
+                .filter(status__in=["NEW", "WAITING_CUSTOMER", "IN_REVIEW", "ESCALATED"])
+                .filter(updated_at__gte=cutoff)
+                .order_by("-updated_at")
+                .first()
+            )
+
             flow = CaseResolutionFlow()
 
-            # ✅ FIX: WhatsApp inbound creates a NEW case via kickoff_new_case()
-            results = flow.kickoff_new_case(
-                incoming_text=body,
-                phone=from_wa,
-                account_id=None,
-                channel="WHATSAPP",
-            )
+            if open_case:
+                # Attach message to existing case
+                CaseMessage.objects.create(
+                    case=open_case,
+                    sender_type="CUSTOMER",
+                    message_text=body,
+                    message_lang="AR" if any("\u0600" <= ch <= "\u06FF" for ch in (body or "")) else "EN",
+                )
+                open_case.last_customer_message_at = timezone.now()
+                open_case.save(update_fields=["last_customer_message_at", "updated_at"])
+
+                results = flow.kickoff_existing_case(case=open_case, incoming_text=body, phone=from_wa)
+            else:
+                results = flow.kickoff_new_case(
+                    incoming_text=body,
+                    phone=from_wa,
+                    account_id=None,
+                    channel="WHATSAPP",
+                )
+
         finally:
             with processing_lock:
                 processing_phones.discard(from_wa)
@@ -122,6 +182,8 @@ def whatsapp_inbound(request):
     except Exception as e:
         logger.error("Error processing webhook: %s", e, exc_info=True)
         return HttpResponse(json.dumps({"status": "error", "message": str(e)}), content_type="application/json", status=500)
+
+
 
 
 @extend_schema(
@@ -144,11 +206,18 @@ def create_case(request):
     if not ser.is_valid():
         return Response({"success": False, "error": ser.errors}, status=status.HTTP_400_BAD_REQUEST)
 
+    phone = (ser.validated_data.get("phone") or "").strip() or None
     account_id = ser.validated_data.get("account_id") or None
     message = ser.validated_data["message"]
     channel = ser.validated_data.get("channel", "WEB")
 
-    case = Case.objects.create(account_id=account_id, channel=channel, subject=message[:255])
+    case = Case.objects.create(
+        phone=phone,
+        account_id=account_id,
+        channel=channel,
+        subject=message[:255],
+        last_customer_message_at=timezone.now(),
+    )
 
     CaseMessage.objects.create(
         case=case,
@@ -158,7 +227,6 @@ def create_case(request):
     )
 
     return Response({"success": True, "case_id": str(case.case_id)}, status=status.HTTP_201_CREATED)
-
 
 @extend_schema(
     operation_id="add_case_message",
@@ -183,7 +251,7 @@ def add_message(request, case_id):
         case=case,
         sender_type=sender_type,
         message_text=message,
-        message_lang="AR" if any("\u0600" <= ch <= "\u06FF" for ch in message) else "EN",
+        message_lang="AR" if any("\u0600" <= ch <= "\u06FF" for ch in (message or "")) else "EN",
     )
 
     return Response({"success": True, "message_id": msg.message_id}, status=status.HTTP_201_CREATED)
@@ -205,7 +273,7 @@ def run_case_agent(request, case_id):
 
     flow = CaseResolutionFlow()
 
-    # ✅ FIX: run agent on the EXISTING case (no new case created)
+    # ✅ Run agent on the existing case (no new case created)
     res = flow.kickoff_existing_case(case=case, incoming_text=latest.message_text, phone=None)
 
     return Response({"success": True, "result": res}, status=status.HTTP_200_OK)
@@ -220,9 +288,15 @@ def run_case_agent(request, case_id):
 @api_view(["GET"])
 def get_case(request, case_id):
     case = get_object_or_404(Case, case_id=case_id)
-    msgs = list(case.messages.order_by("created_at").values("message_id", "sender_type", "message_text", "created_at"))
-    runs = list(case.runs.order_by("-started_at").values("run_id", "final_decision", "run_status", "started_at", "finished_at"))
-    return Response({"case": {"case_id": str(case.case_id), "status": case.status, "subject": case.subject}, "messages": msgs, "runs": runs})
+    msgs = list(
+        case.messages.order_by("created_at").values("message_id", "sender_type", "message_text", "created_at")
+    )
+    runs = list(
+        case.runs.order_by("-started_at").values("run_id", "final_decision", "run_status", "started_at", "finished_at")
+    )
+    return Response(
+        {"case": {"case_id": str(case.case_id), "status": case.status, "subject": case.subject}, "messages": msgs, "runs": runs}
+    )
 
 
 @extend_schema(
@@ -234,7 +308,9 @@ def get_case(request, case_id):
 @api_view(["GET"])
 def get_case_messages(request, case_id):
     case = get_object_or_404(Case, case_id=case_id)
-    msgs = list(case.messages.order_by("created_at").values("message_id", "sender_type", "message_text", "created_at"))
+    msgs = list(
+        case.messages.order_by("created_at").values("message_id", "sender_type", "message_text", "created_at")
+    )
     return Response({"messages": msgs})
 
 
@@ -254,4 +330,7 @@ def generate_content(request):
     flow = ContentGenerationFlow()
     result = flow.kickoff(user_query=ser.validated_data["user_query"])
 
-    return Response({"success": True, "data": result, "message": "Content generated successfully"}, status=status.HTTP_200_OK)
+    return Response(
+        {"success": True, "data": result, "message": "Content generated successfully"},
+        status=status.HTTP_200_OK,
+    )
