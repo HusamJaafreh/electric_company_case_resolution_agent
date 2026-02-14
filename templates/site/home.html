@@ -1,108 +1,322 @@
 <!doctype html>
-<html lang="en">
+<html lang="ar" dir="rtl">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Amman Electric Co.</title>
+  <title>شركة الكهرباء - بوابة الخدمات</title>
   <style>
-    body { font-family: system-ui, Arial; margin:0; background:#f6f7fb; color:#111; }
-    header { background:#0b2a55; color:#fff; padding:20px 24px; }
-    .wrap { max-width:1100px; margin:0 auto; padding:24px; }
-    .hero { display:grid; grid-template-columns: 1.2fr 0.8fr; gap:18px; align-items:stretch; }
-    .card { background:#fff; border-radius:16px; padding:18px; box-shadow: 0 8px 30px rgba(0,0,0,.06); }
-    .kpis { display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; margin-top:12px; }
-    .btn { background:#0b2a55; color:#fff; border:0; padding:10px 14px; border-radius:12px; cursor:pointer; }
-    .muted { color:#556; font-size:14px; }
+    :root{
+      --brand:#0b5fa5;     /* utility blue */
+      --brand2:#0a4c85;
+      --bg:#f4f6f9;
+      --card:#ffffff;
+      --text:#0f172a;
+      --muted:#475569;
+      --border:#e2e8f0;
+      --shadow: 0 10px 30px rgba(2, 6, 23, .08);
+      --radius:16px;
+    }
+    *{ box-sizing:border-box; }
+    body{ margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; background:var(--bg); color:var(--text); }
+    a{ color:inherit; text-decoration:none; }
 
-    /* Chat bubble button */
-    .chat-fab { position:fixed; right:18px; bottom:18px; width:56px; height:56px; border-radius:50%;
-      background:#0b2a55; color:#fff; display:flex; align-items:center; justify-content:center;
-      box-shadow: 0 10px 30px rgba(0,0,0,.25); cursor:pointer; border:0; font-size:22px; }
+    /* Top slim bar */
+    .topbar{
+      background:#0b2a55;
+      color:#e5efff;
+      font-size:13px;
+      padding:8px 16px;
+    }
+    .topbar .wrap{ max-width:1100px; margin:0 auto; display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; }
 
-    /* Chat window */
-    .chat { position:fixed; right:18px; bottom:86px; width:360px; max-width: calc(100vw - 36px);
-      background:#fff; border-radius:16px; box-shadow: 0 14px 50px rgba(0,0,0,.18); overflow:hidden; display:none; }
-    .chat header { background:#0b2a55; padding:12px 14px; }
-    .chat header .title { font-weight:700; }
-    .chat header .sub { font-size:12px; opacity:.85; }
-    .chat .msgs { height:360px; overflow:auto; padding:12px; background:#f6f7fb; }
-    .m { max-width: 85%; margin:8px 0; padding:10px 12px; border-radius:14px; line-height:1.35; white-space:pre-wrap; }
-    .me { background:#0b2a55; color:#fff; margin-left:auto; border-bottom-right-radius:6px; }
-    .bot { background:#fff; color:#111; border:1px solid #e7e9f2; border-bottom-left-radius:6px; }
-    .chat .bar { display:flex; gap:8px; padding:10px; border-top:1px solid #e7e9f2; background:#fff; }
-    .chat input { flex:1; padding:10px 12px; border-radius:12px; border:1px solid #dfe3f2; outline:none; }
-    .chat .send { padding:10px 12px; border-radius:12px; border:0; background:#0b2a55; color:#fff; cursor:pointer; }
+    /* Main header */
+    header{
+      background: linear-gradient(180deg, var(--brand2), var(--brand));
+      color:#fff;
+      padding:16px 16px 18px;
+    }
+    header .wrap{ max-width:1100px; margin:0 auto; display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; }
+    .brand{
+      display:flex; align-items:center; gap:12px;
+    }
+    .logo{
+      width:44px; height:44px; border-radius:12px;
+      background:rgba(255,255,255,.16);
+      display:flex; align-items:center; justify-content:center;
+      font-weight:900;
+    }
+    .brand h1{ margin:0; font-size:18px; font-weight:900; }
+    .brand .sub{ opacity:.9; font-size:12px; margin-top:2px; }
+    nav{
+      display:flex; gap:10px; flex-wrap:wrap;
+    }
+    .navlink{
+      background:rgba(255,255,255,.14);
+      border:1px solid rgba(255,255,255,.18);
+      padding:8px 10px;
+      border-radius:12px;
+      font-size:13px;
+    }
+
+    /* Content */
+    .container{ max-width:1100px; margin:0 auto; padding:18px 16px 90px; }
+    .grid{
+      display:grid;
+      grid-template-columns: 1.25fr .75fr;
+      gap:14px;
+      margin-top:14px;
+    }
+    @media (max-width: 900px){
+      .grid{ grid-template-columns:1fr; }
+    }
+    .card{
+      background:var(--card);
+      border:1px solid var(--border);
+      border-radius:var(--radius);
+      box-shadow: var(--shadow);
+      padding:16px;
+    }
+    .alert{
+      background:#fff7ed;
+      border:1px solid #fed7aa;
+      color:#9a3412;
+      border-radius:14px;
+      padding:12px 14px;
+      display:flex;
+      justify-content:space-between;
+      gap:12px;
+      align-items:center;
+      margin-top:14px;
+    }
+    .alert b{ font-weight:900; }
+    .btn{
+      border:0;
+      background:var(--brand);
+      color:#fff;
+      padding:10px 12px;
+      border-radius:14px;
+      cursor:pointer;
+      font-weight:700;
+    }
+    .btn.secondary{
+      background:#ffffff;
+      color:var(--brand);
+      border:1px solid rgba(11,95,165,.25);
+    }
+
+    .services{
+      display:grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap:12px;
+      margin-top:12px;
+    }
+    @media (max-width: 900px){
+      .services{ grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 520px){
+      .services{ grid-template-columns:1fr; }
+    }
+    .svc{
+      border:1px solid var(--border);
+      border-radius:16px;
+      padding:14px;
+      background:#fff;
+      display:flex;
+      gap:12px;
+      align-items:flex-start;
+      cursor:pointer;
+      transition:.12s transform ease;
+    }
+    .svc:hover{ transform: translateY(-2px); }
+    .icon{
+      width:40px; height:40px; border-radius:14px;
+      background: rgba(11,95,165,.12);
+      display:flex; align-items:center; justify-content:center;
+      font-weight:900; color:var(--brand);
+      flex: 0 0 auto;
+    }
+    .svc .t{ font-weight:900; margin:0; }
+    .svc .d{ margin:4px 0 0; color:var(--muted); font-size:13px; }
+
+    .list{
+      margin:10px 0 0;
+      padding:0;
+      list-style:none;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    .item{
+      border:1px solid var(--border);
+      border-radius:14px;
+      padding:12px 12px;
+      background:#fff;
+    }
+    .item .meta{ color:var(--muted); font-size:12px; margin-top:4px; }
+
+    /* Chat button + window */
+    .chat-fab{
+      position:fixed; left:18px; bottom:18px;
+      width:56px; height:56px; border-radius:50%;
+      background:var(--brand);
+      color:#fff; display:flex; align-items:center; justify-content:center;
+      box-shadow: 0 14px 40px rgba(2,6,23,.25);
+      cursor:pointer; border:0; font-size:22px;
+    }
+    .chat{
+      position:fixed; left:18px; bottom:86px;
+      width:360px; max-width: calc(100vw - 36px);
+      background:#fff; border-radius:16px;
+      box-shadow: 0 18px 55px rgba(2,6,23,.22);
+      overflow:hidden; display:none;
+      border:1px solid var(--border);
+    }
+    .chat .head{
+      background: linear-gradient(180deg, var(--brand2), var(--brand));
+      color:#fff;
+      padding:12px 14px;
+    }
+    .chat .head .title{ font-weight:900; }
+    .chat .head .sub{ font-size:12px; opacity:.9; margin-top:2px; }
+    .chat .msgs{ height:360px; overflow:auto; padding:12px; background:var(--bg); }
+    .m{ max-width:85%; margin:8px 0; padding:10px 12px; border-radius:14px; line-height:1.5; white-space:pre-wrap; }
+    .me{ background:var(--brand); color:#fff; margin-right:auto; border-bottom-right-radius:6px; }
+    .bot{ background:#fff; color:#111; border:1px solid var(--border); border-bottom-left-radius:6px; }
+    .chat .bar{ display:flex; gap:8px; padding:10px; border-top:1px solid var(--border); background:#fff; }
+    .chat input{ flex:1; padding:10px 12px; border-radius:12px; border:1px solid #dfe3f2; outline:none; }
+    .chat .send{ padding:10px 12px; border-radius:12px; border:0; background:var(--brand); color:#fff; cursor:pointer; font-weight:800; }
   </style>
 </head>
+
 <body>
+  <div class="topbar">
+    <div class="wrap">
+      <div>مركز خدمة المشتركين • 06-XXXXXXX</div>
+      <div>اللغة: العربية | English</div>
+    </div>
+  </div>
+
   <header>
     <div class="wrap">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
+      <div class="brand">
+        <div class="logo">⚡</div>
         <div>
-          <div style="font-size:20px; font-weight:800;">Amman Electric Co.</div>
-          <div class="muted" style="color:#d7e4ff;">Bills • Outages • Meter readings • Support</div>
+          <h1>بوابة شركة الكهرباء</h1>
+          <div class="sub">خدمات المشتركين • الاستعلام والدفع • البلاغات</div>
         </div>
-        <button class="btn" onclick="openChat()">Chat Support</button>
       </div>
+
+      <nav>
+        <a class="navlink" href="#services">الخدمات الإلكترونية</a>
+        <a class="navlink" href="#news">الإعلانات</a>
+        <a class="navlink" href="#contact">اتصل بنا</a>
+        <a class="navlink" href="javascript:void(0)" onclick="openChat()">مساعد الدعم</a>
+      </nav>
     </div>
   </header>
 
-  <div class="wrap">
-    <div class="hero">
-      <div class="card">
-        <h2 style="margin:0 0 8px;">Powering your day, reliably.</h2>
-        <div class="muted">Check outages, understand your bill, and get help instantly using our support assistant.</div>
+  <div class="container">
+    <div class="alert">
+      <div><b>تنويه:</b> يمكنك الاستعلام عن الفواتير والدفع والإبلاغ عن انقطاع التيار عبر الخدمات الإلكترونية.</div>
+      <button class="btn secondary" onclick="openChatWith('أريد الاستعلام عن فاتورتي')">اسأل المساعد</button>
+    </div>
 
-        <div class="kpis">
-          <div class="card" style="padding:14px;">
-            <div class="muted">Current status</div>
-            <div style="font-weight:800; font-size:18px;">All systems normal</div>
-          </div>
-          <div class="card" style="padding:14px;">
-            <div class="muted">Average response</div>
-            <div style="font-weight:800; font-size:18px;">&lt; 2 minutes</div>
-          </div>
-          <div class="card" style="padding:14px;">
-            <div class="muted">Self-service</div>
-            <div style="font-weight:800; font-size:18px;">24/7</div>
-          </div>
-        </div>
+    <div class="grid">
+      <div class="card" id="services">
+        <h2 style="margin:0 0 6px; font-size:18px; font-weight:900;">الخدمات الإلكترونية</h2>
+        <div style="color:var(--muted); font-size:13px;">اختر خدمة لبدء الإجراء أو استخدم المساعد.</div>
 
-        <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap;">
-          <button class="btn" onclick="openChatWith('My bill is higher than usual')">Bill help</button>
-          <button class="btn" onclick="openChatWith('There is a power outage in my area')">Report outage</button>
-          <button class="btn" onclick="openChatWith('My meter reading looks wrong')">Meter issue</button>
+        <div class="services">
+          <div class="svc" onclick="openChatWith('أريد الاستعلام عن الفواتير')">
+            <div class="icon">🧾</div>
+            <div>
+              <p class="t">الاستعلام عن الفواتير</p>
+              <p class="d">عرض قيمة الفاتورة وآخر تحديثات الحساب.</p>
+            </div>
+          </div>
+
+          <div class="svc" onclick="openChatWith('أريد سداد فاتورتي')">
+            <div class="icon">💳</div>
+            <div>
+              <p class="t">سدد فاتورتك</p>
+              <p class="d">إرشادات الدفع وخيارات التسديد.</p>
+            </div>
+          </div>
+
+          <div class="svc" onclick="openChatWith('يوجد انقطاع كهرباء في منطقتي')">
+            <div class="icon">📣</div>
+            <div>
+              <p class="t">بلاغ انقطاع</p>
+              <p class="d">أبلغ عن الانقطاع وتحقق من الأعطال.</p>
+            </div>
+          </div>
+
+          <div class="svc" onclick="openChatWith('قراءة العداد غير صحيحة')">
+            <div class="icon">📟</div>
+            <div>
+              <p class="t">مشاكل قراءة العداد</p>
+              <p class="d">تصحيح قراءة أو فتح تذكرة.</p>
+            </div>
+          </div>
+
+          <div class="svc" onclick="openChatWith('اشرح لي التعرفة الحالية')">
+            <div class="icon">📄</div>
+            <div>
+              <p class="t">التعرفة</p>
+              <p class="d">معلومات حول الشرائح والتعرفة.</p>
+            </div>
+          </div>
+
+          <div class="svc" onclick="openChatWith('لدي مشكلة في الدفع')">
+            <div class="icon">🧠</div>
+            <div>
+              <p class="t">الدعم الذكي</p>
+              <p class="d">مساعد فوري لحل مشاكل الفواتير والخدمات.</p>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div class="card">
-        <h3 style="margin:0 0 8px;">Quick links</h3>
-        <div class="muted">Popular actions customers use.</div>
-        <ul>
-          <li>View tariff info</li>
-          <li>Payment & billing history</li>
-          <li>Report suspicious consumption spike</li>
-          <li>Create a service ticket</li>
+      <div class="card" id="news">
+        <h3 style="margin:0 0 6px; font-size:16px; font-weight:900;">إعلانات وتنبيهات</h3>
+        <div style="color:var(--muted); font-size:13px;">آخر التحديثات (تصميم مشابه لبوابات شركات الكهرباء).</div>
+
+        <ul class="list">
+          <li class="item">
+            <div style="font-weight:900;">تذكير: مواعيد الدفع</div>
+            <div class="meta">يرجى الالتزام بمواعيد الدفع لتجنب الغرامات.</div>
+          </li>
+          <li class="item">
+            <div style="font-weight:900;">تحديث خدمة الشكاوى</div>
+            <div class="meta">يمكنك إرسال الشكوى عبر المساعد أو عبر صفحة اتصل بنا.</div>
+          </li>
+          <li class="item">
+            <div style="font-weight:900;">تحسينات على الخدمات الإلكترونية</div>
+            <div class="meta">تمت إضافة تجربة محادثة جديدة لخدمة المشتركين.</div>
+          </li>
         </ul>
-        <div class="muted">Use the chat to do these with guidance.</div>
+
+        <div id="contact" style="margin-top:12px; color:var(--muted); font-size:13px;">
+          <b style="color:var(--text);">اتصل بنا:</b> هاتف • بريد • شكاوى
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- Chat UI -->
+  <!-- Chat -->
   <button class="chat-fab" onclick="toggleChat()">💬</button>
 
   <div id="chat" class="chat" aria-hidden="true">
-    <header>
-      <div class="title">Support Assistant</div>
-      <div class="sub">Ask about bills, outages, readings, payments</div>
-    </header>
+    <div class="head">
+      <div class="title">مساعد شركة الكهرباء</div>
+      <div class="sub">فواتير • انقطاع • عداد • دفع</div>
+    </div>
 
     <div id="msgs" class="msgs"></div>
 
     <div class="bar">
-      <input id="input" placeholder="Type your message..." onkeydown="if(event.key==='Enter') sendMsg()" />
-      <button class="send" onclick="sendMsg()">Send</button>
+      <input id="input" placeholder="اكتب رسالتك..." onkeydown="if(event.key==='Enter') sendMsg()" />
+      <button class="send" onclick="sendMsg()">إرسال</button>
     </div>
   </div>
 
@@ -116,20 +330,12 @@
       el.style.display = isOpen ? "block" : "none";
       el.setAttribute("aria-hidden", isOpen ? "false" : "true");
       if (isOpen && document.getElementById("msgs").children.length === 0) {
-        addBot("Hi! 👋 How can I help you today?");
+        addBot("أهلاً 👋 كيف أقدر أساعدك اليوم؟");
       }
+      if (isOpen) document.getElementById("input").focus();
     }
-
-    function openChat() {
-      if (!isOpen) toggleChat();
-      document.getElementById("input").focus();
-    }
-
-    function openChatWith(text) {
-      openChat();
-      document.getElementById("input").value = text;
-      sendMsg();
-    }
+    function openChat(){ if (!isOpen) toggleChat(); }
+    function openChatWith(text){ openChat(); document.getElementById("input").value = text; sendMsg(); }
 
     function addMsg(text, cls) {
       const msgs = document.getElementById("msgs");
@@ -150,20 +356,18 @@
       addMe(text);
 
       try {
-        // If no case yet, start; else send
-        let url = caseId ? "/api/webchat/send/" : "/api/webchat/start/";
-        let payload = caseId ? { case_id: caseId, message: text } : { message: text };
+        const url = caseId ? "/api/webchat/send/" : "/api/webchat/start/";
+        const payload = caseId ? { case_id: caseId, message: text } : { message: text };
 
         const res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
         });
-
         const data = await res.json();
 
         if (!res.ok || !data.success) {
-          addBot("Sorry — something went wrong. Please try again.");
+          addBot("صار خطأ. حاول مرة ثانية.");
           return;
         }
 
@@ -172,9 +376,9 @@
           localStorage.setItem("webchat_case_id", caseId);
         }
 
-        addBot(data.reply_text || "✅ Received. A human agent may follow up if needed.");
+        addBot(data.reply_text || "تم الاستلام ✅");
       } catch (e) {
-        addBot("Network error. Please check your connection.");
+        addBot("مشكلة اتصال. تأكد من الإنترنت.");
       }
     }
   </script>
