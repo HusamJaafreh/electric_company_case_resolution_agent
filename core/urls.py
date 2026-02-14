@@ -1,6 +1,7 @@
 # core/urls.py
 from django.urls import path
 from core import views
+from core import webchat_views
 
 urlpatterns = [
 
@@ -55,4 +56,8 @@ urlpatterns = [
         views.generate_content,
         name="generate-content",
     ),
+
+    # NEW webchat api
+    path("api/webchat/start/", webchat_views.webchat_start),
+    path("api/webchat/send/", webchat_views.webchat_send),
 ]

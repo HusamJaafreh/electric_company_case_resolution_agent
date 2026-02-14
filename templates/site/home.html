@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Amman Electric Co.</title>
+  <style>
+    body { font-family: system-ui, Arial; margin:0; background:#f6f7fb; color:#111; }
+    header { background:#0b2a55; color:#fff; padding:20px 24px; }
+    .wrap { max-width:1100px; margin:0 auto; padding:24px; }
+    .hero { display:grid; grid-template-columns: 1.2fr 0.8fr; gap:18px; align-items:stretch; }
+    .card { background:#fff; border-radius:16px; padding:18px; box-shadow: 0 8px 30px rgba(0,0,0,.06); }
+    .kpis { display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; margin-top:12px; }
+    .btn { background:#0b2a55; color:#fff; border:0; padding:10px 14px; border-radius:12px; cursor:pointer; }
+    .muted { color:#556; font-size:14px; }
+
+    /* Chat bubble button */
+    .chat-fab { position:fixed; right:18px; bottom:18px; width:56px; height:56px; border-radius:50%;
+      background:#0b2a55; color:#fff; display:flex; align-items:center; justify-content:center;
+      box-shadow: 0 10px 30px rgba(0,0,0,.25); cursor:pointer; border:0; font-size:22px; }
+
+    /* Chat window */
+    .chat { position:fixed; right:18px; bottom:86px; width:360px; max-width: calc(100vw - 36px);
+      background:#fff; border-radius:16px; box-shadow: 0 14px 50px rgba(0,0,0,.18); overflow:hidden; display:none; }
+    .chat header { background:#0b2a55; padding:12px 14px; }
+    .chat header .title { font-weight:700; }
+    .chat header .sub { font-size:12px; opacity:.85; }
+    .chat .msgs { height:360px; overflow:auto; padding:12px; background:#f6f7fb; }
+    .m { max-width: 85%; margin:8px 0; padding:10px 12px; border-radius:14px; line-height:1.35; white-space:pre-wrap; }
+    .me { background:#0b2a55; color:#fff; margin-left:auto; border-bottom-right-radius:6px; }
+    .bot { background:#fff; color:#111; border:1px solid #e7e9f2; border-bottom-left-radius:6px; }
+    .chat .bar { display:flex; gap:8px; padding:10px; border-top:1px solid #e7e9f2; background:#fff; }
+    .chat input { flex:1; padding:10px 12px; border-radius:12px; border:1px solid #dfe3f2; outline:none; }
+    .chat .send { padding:10px 12px; border-radius:12px; border:0; background:#0b2a55; color:#fff; cursor:pointer; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <div style="font-size:20px; font-weight:800;">Amman Electric Co.</div>
+          <div class="muted" style="color:#d7e4ff;">Bills • Outages • Meter readings • Support</div>
+        </div>
+        <button class="btn" onclick="openChat()">Chat Support</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="hero">
+      <div class="card">
+        <h2 style="margin:0 0 8px;">Powering your day, reliably.</h2>
+        <div class="muted">Check outages, understand your bill, and get help instantly using our support assistant.</div>
+
+        <div class="kpis">
+          <div class="card" style="padding:14px;">
+            <div class="muted">Current status</div>
+            <div style="font-weight:800; font-size:18px;">All systems normal</div>
+          </div>
+          <div class="card" style="padding:14px;">
+            <div class="muted">Average response</div>
+            <div style="font-weight:800; font-size:18px;">&lt; 2 minutes</div>
+          </div>
+          <div class="card" style="padding:14px;">
+            <div class="muted">Self-service</div>
+            <div style="font-weight:800; font-size:18px;">24/7</div>
+          </div>
+        </div>
+
+        <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn" onclick="openChatWith('My bill is higher than usual')">Bill help</button>
+          <button class="btn" onclick="openChatWith('There is a power outage in my area')">Report outage</button>
+          <button class="btn" onclick="openChatWith('My meter reading looks wrong')">Meter issue</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin:0 0 8px;">Quick links</h3>
+        <div class="muted">Popular actions customers use.</div>
+        <ul>
+          <li>View tariff info</li>
+          <li>Payment & billing history</li>
+          <li>Report suspicious consumption spike</li>
+          <li>Create a service ticket</li>
+        </ul>
+        <div class="muted">Use the chat to do these with guidance.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chat UI -->
+  <button class="chat-fab" onclick="toggleChat()">💬</button>
+
+  <div id="chat" class="chat" aria-hidden="true">
+    <header>
+      <div class="title">Support Assistant</div>
+      <div class="sub">Ask about bills, outages, readings, payments</div>
+    </header>
+
+    <div id="msgs" class="msgs"></div>
+
+    <div class="bar">
+      <input id="input" placeholder="Type your message..." onkeydown="if(event.key==='Enter') sendMsg()" />
+      <button class="send" onclick="sendMsg()">Send</button>
+    </div>
+  </div>
+
+  <script>
+    let isOpen = false;
+    let caseId = localStorage.getItem("webchat_case_id") || null;
+
+    function toggleChat() {
+      isOpen = !isOpen;
+      const el = document.getElementById("chat");
+      el.style.display = isOpen ? "block" : "none";
+      el.setAttribute("aria-hidden", isOpen ? "false" : "true");
+      if (isOpen && document.getElementById("msgs").children.length === 0) {
+        addBot("Hi! 👋 How can I help you today?");
+      }
+    }
+
+    function openChat() {
+      if (!isOpen) toggleChat();
+      document.getElementById("input").focus();
+    }
+
+    function openChatWith(text) {
+      openChat();
+      document.getElementById("input").value = text;
+      sendMsg();
+    }
+
+    function addMsg(text, cls) {
+      const msgs = document.getElementById("msgs");
+      const div = document.createElement("div");
+      div.className = "m " + cls;
+      div.textContent = text;
+      msgs.appendChild(div);
+      msgs.scrollTop = msgs.scrollHeight;
+    }
+    function addMe(t){ addMsg(t, "me"); }
+    function addBot(t){ addMsg(t, "bot"); }
+
+    async function sendMsg() {
+      const inp = document.getElementById("input");
+      const text = (inp.value || "").trim();
+      if (!text) return;
+      inp.value = "";
+      addMe(text);
+
+      try {
+        // If no case yet, start; else send
+        let url = caseId ? "/api/webchat/send/" : "/api/webchat/start/";
+        let payload = caseId ? { case_id: caseId, message: text } : { message: text };
+
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+          addBot("Sorry — something went wrong. Please try again.");
+          return;
+        }
+
+        if (!caseId && data.case_id) {
+          caseId = data.case_id;
+          localStorage.setItem("webchat_case_id", caseId);
+        }
+
+        addBot(data.reply_text || "✅ Received. A human agent may follow up if needed.");
+      } catch (e) {
+        addBot("Network error. Please check your connection.");
+      }
+    }
+  </script>
+</body>
+</html>
