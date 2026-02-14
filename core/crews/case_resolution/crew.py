@@ -42,7 +42,8 @@ Allowed decisions:
 - ESCALATE
 
 Rules:
-- If account_id is missing and you can't proceed, choose REQUEST_MORE_INFO and ask for account number.
+- If account_id is mentioned in previous conversation history, use it. Do NOT ask for it again.
+- If account_id is missing from both current input AND conversation history, choose REQUEST_MORE_INFO and ask for account number.
 - Use tools to gather evidence.
 - If billing/consumption explanation is enough, choose EXPLAIN.
 - If technical issue suspected, choose CREATE_TICKET.
@@ -150,7 +151,7 @@ def build_case_resolution_agent():
     )
 
 
-def run_case_resolution_ai(input_payload: dict) -> dict:
+def run_case_resolution_ai(input_payload: dict, conversation_history: list = None) -> dict:
     agent = build_case_resolution_agent()
 
     schema_hint = (
@@ -164,11 +165,25 @@ def run_case_resolution_ai(input_payload: dict) -> dict:
         '}'
     )
 
+    # Build conversation history context
+    history_context = ""
+    if conversation_history:
+        history_context = "\n## Previous Conversation History:\n"
+        for i, exchange in enumerate(conversation_history, 1):
+            if isinstance(exchange, dict):
+                user_msg = exchange.get("user_message", "")
+                agent_reply = exchange.get("agent_reply", "")
+                history_context += f"\n[Exchange {i}]\nUser: {user_msg}\nAgent Reply: {agent_reply}"
+            elif isinstance(exchange, str):
+                history_context += f"\n{exchange}"
+
     task = Task(
         description=(
             "Analyze the case and decide the best next step.\n"
-            "Use tools as needed.\n\n"
+            "Use tools as needed.\n"
+            f"{history_context}\n\n"
             f"{schema_hint}\n\n"
+            f"## Current Query:\n"
             f"INPUT_JSON:\n{_safe_json_dumps(input_payload)}\n"
         ),
         expected_output=schema_hint,

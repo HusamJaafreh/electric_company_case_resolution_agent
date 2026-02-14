@@ -120,6 +120,35 @@ class CaseResolutionFlow:
             "evidence": {},
         }
 
+        # ---- Build conversation history from previous messages (excluding current incoming message) ----
+        # Exclude the current incoming message and only pair customer-agent exchanges
+        all_messages = list(
+            case.messages.order_by("created_at")
+            .values("sender_type", "message_text")
+        )
+        
+        conversation_history = []
+        i = 0
+        while i < len(all_messages):
+            msg = all_messages[i]
+            if msg["sender_type"] == "CUSTOMER":
+                user_msg = msg["message_text"]
+                # Look for the next agent reply
+                agent_reply = ""
+                if i + 1 < len(all_messages) and all_messages[i + 1]["sender_type"] == "AGENT":
+                    agent_reply = all_messages[i + 1]["message_text"]
+                    i += 2  # Skip both customer and agent messages
+                else:
+                    i += 1
+                
+                if user_msg and agent_reply:  # Only add complete exchanges
+                    conversation_history.append({
+                        "user_message": user_msg,
+                        "agent_reply": agent_reply
+                    })
+            else:
+                i += 1
+
         # ---- Create AgentRun record BEFORE call (demo transparency) ----
         run = AgentRun.objects.create(
             case=case,
@@ -128,7 +157,7 @@ class CaseResolutionFlow:
         )
 
         try:
-            result = run_case_resolution_ai(payload)
+            result = run_case_resolution_ai(payload, conversation_history=conversation_history)
 
             decision = result.get("decision")
             reply = result.get("reply_text") or ""
