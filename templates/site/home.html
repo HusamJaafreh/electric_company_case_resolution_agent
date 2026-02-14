@@ -6,7 +6,7 @@
   <title>شركة الكهرباء - بوابة الخدمات</title>
   <style>
     :root{
-      --brand:#0b5fa5;     /* utility blue */
+      --brand:#0b5fa5;
       --brand2:#0a4c85;
       --bg:#f4f6f9;
       --card:#ffffff;
@@ -20,7 +20,6 @@
     body{ margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; background:var(--bg); color:var(--text); }
     a{ color:inherit; text-decoration:none; }
 
-    /* Top slim bar */
     .topbar{
       background:#0b2a55;
       color:#e5efff;
@@ -29,16 +28,13 @@
     }
     .topbar .wrap{ max-width:1100px; margin:0 auto; display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; }
 
-    /* Main header */
     header{
       background: linear-gradient(180deg, var(--brand2), var(--brand));
       color:#fff;
       padding:16px 16px 18px;
     }
     header .wrap{ max-width:1100px; margin:0 auto; display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; }
-    .brand{
-      display:flex; align-items:center; gap:12px;
-    }
+    .brand{ display:flex; align-items:center; gap:12px; }
     .logo{
       width:44px; height:44px; border-radius:12px;
       background:rgba(255,255,255,.16);
@@ -47,9 +43,7 @@
     }
     .brand h1{ margin:0; font-size:18px; font-weight:900; }
     .brand .sub{ opacity:.9; font-size:12px; margin-top:2px; }
-    nav{
-      display:flex; gap:10px; flex-wrap:wrap;
-    }
+    nav{ display:flex; gap:10px; flex-wrap:wrap; }
     .navlink{
       background:rgba(255,255,255,.14);
       border:1px solid rgba(255,255,255,.18);
@@ -58,7 +52,6 @@
       font-size:13px;
     }
 
-    /* Content */
     .container{ max-width:1100px; margin:0 auto; padding:18px 16px 90px; }
     .grid{
       display:grid;
@@ -165,7 +158,7 @@
     }
     .chat{
       position:fixed; left:18px; bottom:86px;
-      width:360px; max-width: calc(100vw - 36px);
+      width:380px; max-width: calc(100vw - 36px);
       background:#fff; border-radius:16px;
       box-shadow: 0 18px 55px rgba(2,6,23,.22);
       overflow:hidden; display:none;
@@ -175,16 +168,70 @@
       background: linear-gradient(180deg, var(--brand2), var(--brand));
       color:#fff;
       padding:12px 14px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
     }
     .chat .head .title{ font-weight:900; }
     .chat .head .sub{ font-size:12px; opacity:.9; margin-top:2px; }
-    .chat .msgs{ height:360px; overflow:auto; padding:12px; background:var(--bg); }
+    .chat .head .actions{ display:flex; gap:8px; }
+    .smallbtn{
+      border:1px solid rgba(255,255,255,.35);
+      background:rgba(255,255,255,.14);
+      color:#fff;
+      padding:7px 10px;
+      border-radius:12px;
+      cursor:pointer;
+      font-weight:800;
+      font-size:12px;
+    }
+
+    /* Quick buttons */
+    .quickwrap{
+      padding:10px 12px;
+      border-bottom:1px solid var(--border);
+      background:#fff;
+    }
+    .quicktitle{
+      font-size:12px;
+      color:var(--muted);
+      margin-bottom:8px;
+      font-weight:700;
+    }
+    .quickgrid{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+    }
+    .qbtn{
+      border:1px solid var(--border);
+      background:#fff;
+      color:var(--text);
+      padding:8px 10px;
+      border-radius:999px;
+      cursor:pointer;
+      font-size:12px;
+      font-weight:800;
+      transition:.12s transform ease;
+    }
+    .qbtn:hover{ transform: translateY(-1px); }
+
+    .chat .msgs{ height:330px; overflow:auto; padding:12px; background:var(--bg); }
     .m{ max-width:85%; margin:8px 0; padding:10px 12px; border-radius:14px; line-height:1.5; white-space:pre-wrap; }
     .me{ background:var(--brand); color:#fff; margin-right:auto; border-bottom-right-radius:6px; }
     .bot{ background:#fff; color:#111; border:1px solid var(--border); border-bottom-left-radius:6px; }
+
     .chat .bar{ display:flex; gap:8px; padding:10px; border-top:1px solid var(--border); background:#fff; }
     .chat input{ flex:1; padding:10px 12px; border-radius:12px; border:1px solid #dfe3f2; outline:none; }
     .chat .send{ padding:10px 12px; border-radius:12px; border:0; background:var(--brand); color:#fff; cursor:pointer; font-weight:800; }
+
+    .typing{
+      display:inline-block;
+      font-size:12px;
+      color:var(--muted);
+      margin:6px 0 0;
+    }
   </style>
 </head>
 
@@ -217,7 +264,7 @@
 
   <div class="container">
     <div class="alert">
-      <div><b>تنويه:</b> يمكنك الاستعلام عن الفواتير والدفع والإبلاغ عن انقطاع التيار عبر الخدمات الإلكترونية.</div>
+      <div><b>تنويه:</b> يمكنك الاستعلام عن الفواتير والدفع والإبلاغ عن انقطاع التيار عبر الخدمات الإلكترونية أو من خلال المساعد.</div>
       <button class="btn secondary" onclick="openChatWith('أريد الاستعلام عن فاتورتي')">اسأل المساعد</button>
     </div>
 
@@ -279,7 +326,7 @@
 
       <div class="card" id="news">
         <h3 style="margin:0 0 6px; font-size:16px; font-weight:900;">إعلانات وتنبيهات</h3>
-        <div style="color:var(--muted); font-size:13px;">آخر التحديثات (تصميم مشابه لبوابات شركات الكهرباء).</div>
+        <div style="color:var(--muted); font-size:13px;">آخر التحديثات.</div>
 
         <ul class="list">
           <li class="item">
@@ -292,7 +339,7 @@
           </li>
           <li class="item">
             <div style="font-weight:900;">تحسينات على الخدمات الإلكترونية</div>
-            <div class="meta">تمت إضافة تجربة محادثة جديدة لخدمة المشتركين.</div>
+            <div class="meta">تمت إضافة أزرار أسئلة شائعة داخل المحادثة.</div>
           </li>
         </ul>
 
@@ -308,8 +355,29 @@
 
   <div id="chat" class="chat" aria-hidden="true">
     <div class="head">
-      <div class="title">مساعد شركة الكهرباء</div>
-      <div class="sub">فواتير • انقطاع • عداد • دفع</div>
+      <div>
+        <div class="title">مساعد شركة الكهرباء</div>
+        <div class="sub">فواتير • انقطاع • عداد • دفع</div>
+      </div>
+      <div class="actions">
+        <button class="smallbtn" onclick="resetChat()">بدء جديد</button>
+        <button class="smallbtn" onclick="toggleChat()">إغلاق</button>
+      </div>
+    </div>
+
+    <!-- ✅ Quick question buttons -->
+    <div class="quickwrap">
+      <div class="quicktitle">أسئلة شائعة (اضغط لإرسال السؤال)</div>
+      <div class="quickgrid">
+        <button class="qbtn" onclick="sendQuick('لماذا فاتورتي مرتفعة هذا الشهر؟')">فاتورة مرتفعة</button>
+        <button class="qbtn" onclick="sendQuick('أريد الاستعلام عن فاتورتي')">استعلام فاتورة</button>
+        <button class="qbtn" onclick="sendQuick('كيف يمكنني دفع الفاتورة؟')">طرق الدفع</button>
+        <button class="qbtn" onclick="sendQuick('يوجد انقطاع كهرباء في منطقتي')">بلاغ انقطاع</button>
+        <button class="qbtn" onclick="sendQuick('قراءة العداد غير صحيحة')">مشكلة عداد</button>
+        <button class="qbtn" onclick="sendQuick('اشرح لي التعرفة الحالية')">التعرفة</button>
+        <button class="qbtn" onclick="sendQuick('أريد فتح تذكرة صيانة')">فتح تذكرة</button>
+        <button class="qbtn" onclick="sendQuick('لدي مشكلة في الدفع')">مشكلة دفع</button>
+      </div>
     </div>
 
     <div id="msgs" class="msgs"></div>
@@ -330,12 +398,21 @@
       el.style.display = isOpen ? "block" : "none";
       el.setAttribute("aria-hidden", isOpen ? "false" : "true");
       if (isOpen && document.getElementById("msgs").children.length === 0) {
-        addBot("أهلاً 👋 كيف أقدر أساعدك اليوم؟");
+        addBot("أهلاً 👋 اختر سؤال شائع من الأزرار أو اكتب سؤالك.");
       }
       if (isOpen) document.getElementById("input").focus();
     }
     function openChat(){ if (!isOpen) toggleChat(); }
     function openChatWith(text){ openChat(); document.getElementById("input").value = text; sendMsg(); }
+
+    function resetChat(){
+      localStorage.removeItem("webchat_case_id");
+      caseId = null;
+      const msgs = document.getElementById("msgs");
+      msgs.innerHTML = "";
+      addBot("تم بدء محادثة جديدة ✅ اختر سؤال شائع أو اكتب رسالتك.");
+      document.getElementById("input").focus();
+    }
 
     function addMsg(text, cls) {
       const msgs = document.getElementById("msgs");
@@ -348,13 +425,23 @@
     function addMe(t){ addMsg(t, "me"); }
     function addBot(t){ addMsg(t, "bot"); }
 
+    // ✅ sends message immediately when clicking a quick button
+    function sendQuick(text){
+      openChat();
+      addMe(text);
+      sendToServer(text);
+    }
+
     async function sendMsg() {
       const inp = document.getElementById("input");
       const text = (inp.value || "").trim();
       if (!text) return;
       inp.value = "";
       addMe(text);
+      await sendToServer(text);
+    }
 
+    async function sendToServer(text){
       try {
         const url = caseId ? "/api/webchat/send/" : "/api/webchat/start/";
         const payload = caseId ? { case_id: caseId, message: text } : { message: text };
@@ -364,6 +451,7 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
         });
+
         const data = await res.json();
 
         if (!res.ok || !data.success) {
