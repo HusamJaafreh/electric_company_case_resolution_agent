@@ -205,10 +205,8 @@ class CaseResolutionFlow:
             case.save(update_fields=["status", "resolution_summary", "resolved_at", "last_agent_message_at", "updated_at"])
 
             # RTL wrap if Arabic
-            if _is_arabic(reply):
-                reply_to_send = f'<div dir="rtl" style="text-align:right; font-family: Arial, Tahoma;">{reply}</div>'
-            else:
-                reply_to_send = reply
+            
+            reply_to_send = reply
 
             # Persist agent reply message
             CaseMessage.objects.create(
