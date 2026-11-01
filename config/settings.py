@@ -103,6 +103,9 @@ SPECTACULAR_SETTINGS = {
     },
 }
 
+# LLM used by the CrewAI agent (None = CrewAI default model)
+AGENT_MODEL = os.getenv("AGENT_MODEL") or None
+
 # Gupshup settings
 GUPSHUP_API_KEY = os.getenv("GUPSHUP_API_KEY", "")
 GUPSHUP_PHONE_NUMBER = os.getenv("GUPSHUP_PHONE_NUMBER", "")
